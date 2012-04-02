@@ -1,23 +1,23 @@
 import logging
-import urllib
 from warnings import warn
 try:
     import json
 except ImportError:
-    import simplejson as json
+    import simplejson as json  # NOQA
 
 
 from django.conf import settings
 
-import requests
-
+from browserid import LocalVerifier, RemoteVerifier
 
 log = logging.getLogger(__name__)
 
 
 DEFAULT_HTTP_TIMEOUT = 5
-DEFAULT_VERIFICATION_URL = 'https://browserid.org/verify'
 OKAY_RESPONSE = 'okay'
+DEFAULT_VERIFIER = 'remote'
+DEFAULT_AUDIENCES = ('*', )
+AVAILABLE_VERIFIERS = ('remote', 'local', 'custom')
 
 
 def get_audience(request):
@@ -83,49 +83,48 @@ def get_audience(request):
     return site_url
 
 
-def _verify_http_request(url, qs):
-    parameters = {
-        'data': qs,
-        'proxies': getattr(settings, 'BROWSERID_PROXY_INFO', None),
-        'verify': not getattr(settings, 'BROWSERID_DISABLE_CERT_CHECK', False),
-        'headers': {'Content-type': 'application/x-www-form-urlencoded'},
-        'params': {
-            'timeout': getattr(settings, 'BROWSERID_HTTP_TIMEOUT',
-                               DEFAULT_HTTP_TIMEOUT)
-        }
-    }
+def get_verifier():
+    """Uses the settings to return an appropriate verifier instance"""
+    verifier_type = getattr(settings, 'BROWSERID_VERIFIER', DEFAULT_VERIFIER)
 
-    if parameters['verify']:
-        parameters['verify'] = getattr(settings, 'BROWSERID_CACERT_FILE', True)
+    if verifier_type not in AVAILABLE_VERIFIERS:
+        raise ValueError('BROWSERID_VERIFIER should be %s' % \
+                         ' or '.join(AVAILABLE_VERIFIERS))
 
-    r = requests.post(url, **parameters)
+    kwargs = {}
+    kwargs['audiences'] = getattr(settings, 'BROWSERID_AUDIENCES',
+                                  DEFAULT_AUDIENCES)
 
-    try:
-        rv = json.loads(r.content)
-    except ValueError:
-        log.debug('Failed to decode JSON. Resp: %s, Content: %s' %
-                  (r.status_code, r.content))
-        return dict(status='failure')
+    log.debug("Audiences: %s" % kwargs['audiences'])
 
-    return rv
+    if verifier_type == 'local':
+        verifier = LocalVerifier(**kwargs)
+
+    elif verifier_type == 'remote':
+        # init the parameters
+        verify_url = getattr(settings, 'BROWSERID_VERIFICATION_URL', None)
+        trusted_secondaries = getattr(settings,
+                                      'BROWSERID_TRUSTED_SECONDARIES', None)
+
+        kwargs['verifier_url'] = verify_url
+        kwargs['trusted_secondaries'] = trusted_secondaries
+        kwargs['warning'] = False  # We don't want to yell each time
+
+        if verify_url:
+            log.debug("Verification URL: %s" % verify_url)
+        if trusted_secondaries:
+            log.debug("Trusted secondaries: %s" % trusted_secondaries)
+
+        verifier = RemoteVerifier(**kwargs)
+
+    elif verifier_type == 'custom':
+        # the the verifier should already be set in the settings. The lookup
+        # will fail if the setting is not set.
+        verifier = settings.BROWSERID_VERIFIER_INSTANCE
+
+    return verifier
 
 
 def verify(assertion, audience):
-    """Verify assertion using an external verification service."""
-    verify_url = getattr(settings, 'BROWSERID_VERIFICATION_URL',
-                         DEFAULT_VERIFICATION_URL)
-
-    log.info("Verification URL: %s" % verify_url)
-
-    result = _verify_http_request(verify_url, urllib.urlencode({
-        'assertion': assertion,
-        'audience': audience
-    }))
-
-    if result['status'] == OKAY_RESPONSE:
-        return result
-
-    log.error('BrowserID verification failure. Response: %r '
-              'Audience: %r' % (result, audience))
-    log.error("BID assert: %r" % assertion)
-    return False
+    """Verify an assertion using PyBrowserID"""
+    return get_verifier().verify(assertion, audience)

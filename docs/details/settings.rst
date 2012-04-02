@@ -37,13 +37,25 @@ Settings
       BROWSERID_VERIFICATION_URL) to check the validity of the assertion
     - "custom" let's you define a valid PyBrowserID verifier.
 
-
 .. data:: BROWSERID_VERIFICATION_URL
 
     **Default:** ``'https://browserid.org/verify``
 
     Defines the URL for the BrowserID verification service to use. This is only
     useful if you are using the "remote" verifier.
+
+.. data:: BROWSERID_AUDIENCES
+
+    The list of valid audiences for the verifiers. This setting works with the
+    "local" and "remote" verifiers. You need to pass the list yourself to the
+    verifier at instanciation if you are using a custom one.
+
+.. data:: BROWSERID_TRUSTED_SECONDARIES
+
+    **Optional**
+
+    The list of domain names that are considered trustable. If nothing is set,
+    the trusted secondaries will be defined by PyBrowserID.
 
 .. data:: BROWSERID_DISABLE_CERT_CHECK
 
@@ -58,5 +70,19 @@ Settings
 
     CA cert file used during validation. If none is provided, the default file
     included with requests_ is used.
+
+
+.. data:: BROWSERID_VERIFIER_INSTANCE
+
+    **Default:** ``None``
+
+    If `BROWSERID_VERIFIER` is set to "custom", then the verifier instance
+    should be put in this setting.
+
+    Any initialization should be done when creating the verifier. For instance,
+    consider something like this::
+
+        BROWSERID_VERIFIER_INSTANCE = CustomVerifier(BROWSERID_VERIFIER_AUDIENCES)
+
 
 .. _requests: http://docs.python-requests.org/
